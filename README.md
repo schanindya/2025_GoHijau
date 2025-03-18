@@ -1,6 +1,6 @@
 # GoHijau Project
 
-GoHijau is a comprehensive solution focused on environmental compliance and sustainability, featuring emissions calculation and EUDR (European Union Deforestation Regulation) documentation analysis.
+This is an internal documentation of workstreams related to the GoHijau Project.
 
 ## 🌱 Overview
 
