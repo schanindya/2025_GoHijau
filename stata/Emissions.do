@@ -1,7 +1,5 @@
 /*==============================================================================
  EMISSIONS CALCULATION FOR INDONESIAN MANUFACTURING FIRMS
- Author: [Your Name]
- Date: [Current Date]
  Description: This do-file calculates CO2 emissions from various energy sources
               using Indonesian manufacturing survey data (IBS)
 ==============================================================================*/
