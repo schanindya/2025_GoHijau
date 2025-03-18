@@ -95,7 +95,7 @@ class EnhancedPDFProcessor:
         # Handle common OCR and formatting issues
         text = text.replace('|', 'I')
         text = re.sub(r'["""]', '"', text)
-        text = re.sub(r'[''']', "'", text)
+        text = re.sub(r'['']', "'", text)
         
         # Handle bullet points and lists
         text = re.sub(r'[•●○■]\s*', '- ', text)
