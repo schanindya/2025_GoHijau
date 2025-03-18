@@ -1,6 +1,7 @@
 """
-Process all PDF documents using PyPDF2.
-This script processes all PDF files in the data/pdfs directory.
+Process all EUDR-related PDF documents using PyPDF2.
+This script processes all PDF files in the data/pdfs directory and extracts content
+organized by articles, chapters, and sections.
 """
 
 import os
@@ -9,10 +10,10 @@ import pandas as pd
 from datetime import datetime
 import re
 
-class CELEXProcessor:
+class EUDRPDFProcessor:
     def __init__(self, pdf_dir: str, output_dir: str):
         """
-        Initialize the CELEX document processor
+        Initialize the EUDR document processor
         
         Args:
             pdf_dir (str): Directory containing PDF files
@@ -59,7 +60,7 @@ class CELEXProcessor:
         
     def is_article_header(self, text: str) -> bool:
         """
-        Check if text is an article header, with specific patterns for CELEX documents
+        Check if text is an article header, with specific patterns for EUDR documents
         """
         article_patterns = [
             r'^Article\s+\d+',
@@ -322,10 +323,10 @@ def main():
     output_dir = os.path.join(project_root, 'data', 'output')
     
     # Create processor
-    processor = CELEXProcessor(pdf_dir, output_dir)
+    processor = EUDRPDFProcessor(pdf_dir, output_dir)
     
     # Process all documents
-    print("Starting PDF document processing...")
+    print("Starting EUDR PDF document processing...")
     paragraphs = processor.process_all_pdfs()
     
     # Save final results
