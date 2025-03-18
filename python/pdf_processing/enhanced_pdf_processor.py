@@ -89,16 +89,19 @@ class EnhancedPDFProcessor:
         Returns:
             str: Cleaned text
         """
+        if not text:
+            return ""
+            
         # Remove extra whitespace
         text = re.sub(r'\s+', ' ', text)
         
         # Handle common OCR and formatting issues
         text = text.replace('|', 'I')
-        text = re.sub(r'["""]', '"', text)
-        text = re.sub(r'['']', "'", text)
+        text = text.replace('"', '"').replace('"', '"')  # Smart quotes
+        text = text.replace(''', "'").replace(''', "'")  # Smart apostrophes
         
         # Handle bullet points and lists
-        text = re.sub(r'[•●○■]\s*', '- ', text)
+        text = text.replace('•', '-').replace('●', '-').replace('○', '-').replace('■', '-')
         
         # Handle common PDF artifacts
         text = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', text)  # Split joined words
