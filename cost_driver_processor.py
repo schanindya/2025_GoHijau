@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure OpenAI
-openai.api_key = "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"
+openai.api_key = "YOUR API KEY"
 
 def extract_cost_driver_names(cost_analysis_str: str) -> List[str]:
     """Extract cost driver names from the JSON string."""
