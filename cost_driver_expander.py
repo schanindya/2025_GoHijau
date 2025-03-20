@@ -15,7 +15,7 @@ client = OpenAI(
     base_url="https://api.perplexity.ai"
 )
 
-def expand_cost_driver(cost_driver: str, context_text: str) -> Optional[str]:
+def expand_cost_driver(cost_driver: str, context_text: str) -> Optional[Dict]:
     """
     Use Perplexity API to expand on a cost driver using its context.
     
@@ -24,7 +24,7 @@ def expand_cost_driver(cost_driver: str, context_text: str) -> Optional[str]:
         context_text (str): The text from which the cost driver was inferred
         
     Returns:
-        str: Expanded explanation with citations, or None if empty input
+        Dict: Dictionary containing explanation and citations, or None if empty input
     """
     if not cost_driver or pd.isna(cost_driver):
         return None
@@ -57,21 +57,22 @@ Please structure your response with clear sections for explanation, cost items, 
             temperature=0.2
         )
         
-        return response.choices[0].message.content.strip()
+        return {
+            'content': response.choices[0].message.content.strip(),
+            'citations': response.citations if hasattr(response, 'citations') else []
+        }
         
     except Exception as e:
         print(f"Error expanding cost driver: {e}")
         return None
 
-def process_excel(input_file: str, output_file: str, batch_size: int = 10, test_rows: int = None):
+def process_excel(input_file: str, output_file: str):
     """
-    Process the Excel file and expand cost drivers using Perplexity API.
+    Process only row 12 of the Excel file and expand its cost driver using Perplexity API.
     
     Args:
         input_file (str): Path to input Excel file
         output_file (str): Path to output Excel file
-        batch_size (int): Number of rows to process before saving checkpoint
-        test_rows (int): Number of rows to process for testing, if None process all rows
     """
     # Read the Excel file
     df = pd.read_excel(input_file)
@@ -81,37 +82,27 @@ def process_excel(input_file: str, output_file: str, batch_size: int = 10, test_
     if not all(col in df.columns for col in required_cols):
         raise ValueError(f"Missing required columns: {required_cols}")
     
-    # Add new column for expanded explanations
+    # Add new columns for expanded explanations and citations
     df['cost_driver_expansion'] = None
+    df['citations'] = None
     
-    # Limit rows for testing if specified
-    if test_rows is not None:
-        df = df.head(test_rows)
-    
-    total_rows = len(df)
-    print(f"Processing {total_rows} rows...")
-    
-    for idx, row in df.iterrows():
-        print(f"Processing row {idx + 1}/{total_rows}")
+    # Process only row 12
+    if len(df) > 12:
+        row = df.iloc[11]  # 0-based indexing, so row 12 is at index 11
+        print(f"Processing row 12")
         
         # Expand cost driver
-        expansion = expand_cost_driver(row['cost_driver'], row['text'])
-        df.at[idx, 'cost_driver_expansion'] = expansion
-        
-        # Save checkpoint every batch_size rows
-        if (idx + 1) % batch_size == 0:
-            checkpoint_file = f"{os.path.splitext(output_file)[0]}_checkpoint_{idx+1}.xlsx"
-            df.to_excel(checkpoint_file, index=False)
-            print(f"Checkpoint saved to {checkpoint_file}")
-            
-        # Add delay to avoid rate limits
-        time.sleep(1)
-    
-    # Save final results
+        result = expand_cost_driver(row['cost_driver'], row['text'])
+        if result:
+            df.at[11, 'cost_driver_expansion'] = result['content']
+            df.at[11, 'citations'] = json.dumps(result['citations'])  # Store citations as JSON string
+    else:
+        print("Row 12 does not exist in the input file.")
+
+    # Save the processed file
     df.to_excel(output_file, index=False)
-    print(f"Processing complete. Results saved to {output_file}")
 
 if __name__ == "__main__":
     input_file = "/Users/schalkeanindya/Desktop/PROSPERA/GoHijau/2025_GoHijau/data/output/eudr_cost_analysis_final_processed.xlsx"
     output_file = "/Users/schalkeanindya/Desktop/PROSPERA/GoHijau/2025_GoHijau/data/output/eudr_analysis_final_expanded.xlsx"
-    process_excel(input_file, output_file, test_rows=20)
+    process_excel(input_file, output_file)
