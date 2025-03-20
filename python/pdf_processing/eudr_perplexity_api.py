@@ -6,6 +6,8 @@ import json
 import re
 from openai import OpenAI
 from typing import List, Dict, Any, Tuple
+import pickle
+import glob
 
 # Configure Perplexity API
 client = OpenAI(
@@ -155,32 +157,84 @@ TEXT: {text}
             print(f"Error getting cost driver analysis: {e}")
             return f"Error: {str(e)}"
     
-    def process_all_rows(self, sleep_interval=1, test_rows=None):
+    def find_latest_pickle(self):
+        """Find the latest pickle file and the number of rows processed."""
+        pickle_pattern = "/Users/schalkeanindya/Desktop/PROSPERA/GoHijau/2025_GoHijau/data/output/eudr_analysis_rows_*_*.pkl"
+        pickle_files = glob.glob(pickle_pattern)
+        
+        if not pickle_files:
+            return None, 0
+            
+        # Sort by modification time (newest first)
+        pickle_files.sort(key=os.path.getmtime, reverse=True)
+        latest_pickle = pickle_files[0]
+        
+        # Extract row count from filename
+        try:
+            # Pattern is eudr_analysis_rows_NUMBER_timestamp.pkl
+            row_count = int(os.path.basename(latest_pickle).split('_')[3])
+            return latest_pickle, row_count
+        except:
+            # If we can't extract row count, assume 0
+            return latest_pickle, 0
+    
+    def process_all_rows(self, sleep_interval=1, start_row=None):
         """
         Process rows and store the raw response in the dataframe.
+        Can resume from a previous run.
         
         Args:
             sleep_interval (int): Seconds to sleep between API calls
-            test_rows (int): Number of rows to process for testing, None for all rows
+            start_row (int): Row index to start processing from (for resuming)
             
         Returns:
             DataFrame: Processed dataframe with raw responses
         """
-        if test_rows is not None:
-            rows_to_process = min(test_rows, len(self.df))
-            df_to_process = self.df.head(rows_to_process).copy()
+        # If no start_row specified, try to find latest pickle and resume
+        if start_row is None:
+            latest_pickle, row_count = self.find_latest_pickle()
+            if latest_pickle:
+                print(f"Found latest pickle: {latest_pickle} with {row_count} rows processed")
+                try:
+                    with open(latest_pickle, 'rb') as f:
+                        df_to_process = pickle.load(f)
+                    print(f"Successfully loaded {len(df_to_process)} rows from pickle")
+                    
+                    # Make sure we have all the original rows (might need to merge with self.df)
+                    if len(df_to_process) < len(self.df):
+                        # Get the remaining rows from self.df that aren't in df_to_process
+                        remaining_df = self.df.iloc[len(df_to_process):].copy()
+                        # Add the cost_driver_analysis column if it doesn't exist
+                        if 'cost_driver_analysis' not in remaining_df.columns:
+                            remaining_df['cost_driver_analysis'] = None
+                        # Combine the processed rows with the remaining rows
+                        df_to_process = pd.concat([df_to_process, remaining_df])
+                        print(f"Added {len(remaining_df)} remaining rows from original dataset")
+                    
+                    start_row = row_count
+                except Exception as e:
+                    print(f"Error loading pickle: {e}")
+                    df_to_process = self.df.copy()
+                    start_row = 0
+            else:
+                df_to_process = self.df.copy()
+                start_row = 0
         else:
-            rows_to_process = len(self.df)
             df_to_process = self.df.copy()
+        
+        # Ensure the cost_driver_analysis column exists
+        if 'cost_driver_analysis' not in df_to_process.columns:
+            df_to_process['cost_driver_analysis'] = None
             
-        print(f"Processing {rows_to_process} text segments...")
+        rows_to_process = len(df_to_process)
+        print(f"Total rows in dataset: {rows_to_process}")
+        print(f"Resuming processing from row {start_row}/{rows_to_process}")
         
-        # Add a column for the raw analysis content
-        df_to_process['cost_driver_analysis'] = None
-
-        print(df_to_process[:10])
-        
-        for i, row in tqdm(df_to_process.iterrows(), total=rows_to_process):
+        # Process rows starting from start_row
+        for i, row in tqdm(df_to_process.iloc[start_row:].iterrows(), 
+                          total=rows_to_process-start_row, 
+                          initial=start_row, 
+                          desc="Processing rows"):
             text = row['text']
             
             if not isinstance(text, str) or len(text) < 10:
@@ -201,7 +255,7 @@ TEXT: {text}
                 
                 # Get raw analysis
                 analysis = self.get_cost_driver_analysis(paragraph, doc_name, article)
-                print(analysis)
+                print(f"Row {i}: Processed analysis")
                 all_analyses.append(analysis)
                 
                 # Sleep to avoid rate limits
@@ -210,61 +264,68 @@ TEXT: {text}
             # Store all analyses for this row
             df_to_process.at[i, 'cost_driver_analysis'] = all_analyses
             
-            # Save intermediate results periodically
-            if (i + 1) % 10 == 0:
-                self.save_intermediate_results(df_to_process.head(i+1), i + 1)
+            # Current row count (1-based)
+            current_row_count = i + 1
+            
+            # Save intermediate results every 20 rows as pickle
+            if current_row_count % 20 == 0 or current_row_count == rows_to_process:
+                self.save_intermediate_pickle(df_to_process, current_row_count)
+            
+            # Save intermediate results every 100 rows to Excel
+            if current_row_count % 100 == 0 or current_row_count == rows_to_process:
+                self.save_intermediate_excel(df_to_process, current_row_count)
         
         return df_to_process
     
-    def save_intermediate_results(self, df, row_count):
-        """Save intermediate results after processing a certain number of rows."""
+    def save_intermediate_pickle(self, df, row_count):
+        """Save intermediate results to pickle file after processing a certain number of rows."""
         timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-        output_path = f"/Users/schalkeanindya/Desktop/PROSPERA/GoHijau/2025_GoHijau/data/output/eudr_analysis_intermediate_{row_count}_{timestamp}.xlsx"
-        df.to_excel(output_path, index=False)
-        print(f"Intermediate results saved to {output_path}")
+        pickle_path = f"/Users/schalkeanindya/Desktop/PROSPERA/GoHijau/2025_GoHijau/data/output/eudr_analysis_rows_{row_count}_{timestamp}.pkl"
+        
+        with open(pickle_path, "wb") as f:
+            pickle.dump(df, f)
+        
+        print(f"Intermediate pickle saved to {pickle_path}")
+        
+        # Print information about the saved pickle
+        print(f"Saved DataFrame with {len(df)} rows and {len(df.columns)} columns")
+        print(f"Columns: {df.columns.tolist()}")
     
-    def process_and_save(self, output_file, test_rows=None):
-        """Process rows and save the final results."""
-        final_df = self.process_all_rows(test_rows=test_rows)
-        # Save the final DataFrame to a pickle file
-        import pickle
-        with open("test.pkl", "wb") as f:
+    def save_intermediate_excel(self, df, row_count):
+        """Save intermediate results to Excel file after processing a certain number of rows."""
+        timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+        excel_path = f"/Users/schalkeanindya/Desktop/PROSPERA/GoHijau/2025_GoHijau/data/output/eudr_analysis_rows_{row_count}_{timestamp}.xlsx"
+        
+        df.to_excel(excel_path, index=False)
+        
+        print(f"Intermediate Excel saved to {excel_path}")
+        print(f"Saved Excel with {len(df)} rows and {len(df.columns)} columns")
+    
+    def process_and_save(self, output_file, start_row=None):
+        """Process all rows and save the final results to both pickle and Excel."""
+        final_df = self.process_all_rows(start_row=start_row)
+        
+        # Save to final pickle
+        timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+        pickle_path = f"/Users/schalkeanindya/Desktop/PROSPERA/GoHijau/2025_GoHijau/data/output/eudr_analysis_final_{timestamp}.pkl"
+        with open(pickle_path, "wb") as f:
             pickle.dump(final_df, f)
-        print("DataFrame saved to test.pkl")
-        # final_df.to_excel(output_file, index=False)
-        print(f"Results saved to {output_file}")
+        print(f"Final DataFrame saved to {pickle_path}")
+        
+        # Save to Excel
+        final_df.to_excel(output_file, index=False)
+        print(f"Results also saved to Excel: {output_file}")
+        
+        # Print summary of final results
+        print(f"Processed {len(final_df)} rows with {len(final_df.columns)} columns")
+        print(f"Columns: {final_df.columns.tolist()}")
 
 if __name__ == "__main__":
-
-    # # Import the pickle module to load the saved DataFrame
-    # import pickle
-    
-    # # Load the test.pkl file
-    # try:
-    #     with open("test.pkl", "rb") as f:
-    #         df = pickle.load(f)
-        
-    #     # Print the DataFrame
-    #     print("Successfully loaded DataFrame from test.pkl")
-    #     print(f"DataFrame shape: {df.shape}")
-    #     print("\nDataFrame columns:")
-    #     print(df.columns.tolist())
-    #     print("\nFirst few rows of the DataFrame:")
-    #     print(df.head())
-    # except FileNotFoundError:
-    #     print("Error: test.pkl file not found")
-    # except Exception as e:
-    #     print(f"Error loading DataFrame: {str(e)}")
-
-    # print(df.at[0, 'cost_driver_analysis'])
-
     analyzer = EUDRCostAnalyzer()
     output_file = "/Users/schalkeanindya/Desktop/PROSPERA/GoHijau/2025_GoHijau/data/output/eudr_cost_drivers_raw_responses.xlsx"
     
-    # For testing with 5 rows only
-    analyzer.process_and_save(output_file, test_rows=20)
-
-
+    # To resume from a specific row (it stopped at row 134), uncomment this line:
+    analyzer.process_and_save(output_file, start_row=0)
     
-    # To process all rows, uncomment the line below and comment the line above
+    # Or to automatically detect and resume from the latest pickle:
     # analyzer.process_and_save(output_file)
