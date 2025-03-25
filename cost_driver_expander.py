@@ -185,8 +185,5 @@ if __name__ == "__main__":
     input_file = "/Users/schalkeanindya/Desktop/PROSPERA/GoHijau/2025_GoHijau/data/output/extracted_cost_drivers.xlsx"
     output_file = "/Users/schalkeanindya/Desktop/PROSPERA/GoHijau/2025_GoHijau/data/output/expanded_cost_drivers_2.xlsx"
     
-    # Test with just a few rows to see the format
-    process_excel(input_file, output_file, batch_size=2, test_rows=2)
-    
-    # After reviewing the format, you can run this for all rows:
-    # process_excel(input_file, output_file, batch_size=10)
+    # Process all rows with a batch size of 100
+    process_excel(input_file, output_file, batch_size=100)
